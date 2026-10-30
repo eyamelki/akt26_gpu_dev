@@ -1,17 +1,14 @@
-# compile for Volta GPU
 CUDADIR ?= /usr/local/cuda
 
-# gpu architecture
-# Ampere by default, with forward compatibility
-sm=80
-GENCODE_SM   = -gencode arch=compute_$(sm),code=sm_$(sm)
-GENCODE_COMP = -gencode arch=compute_$(sm),code=compute_$(sm)
+# Turing (T4, sm_75) and Ampere (A100, sm_80) binaries + PTX for forward compatibility
+GENCODE = -gencode arch=compute_75,code=sm_75 \
+          -gencode arch=compute_80,code=sm_80 \
+          -gencode arch=compute_80,code=compute_80
 
 LIB=-L${CUDADIR}/lib64 -lcublas
 
 all:
-	nvcc ${GENCODE_SM} ${GENCODE_COMP} gemm.cu -o gemm ${LIB}
+	nvcc ${GENCODE} gemm.cu -o gemm ${LIB}
 
 clean:
 	rm -rf gemm
-

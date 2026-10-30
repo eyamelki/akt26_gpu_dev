@@ -14,7 +14,17 @@
 // Column-major storage: A(i,j) = A[j*m + i]
 __global__ void ger_kernel(int m, int n, float alpha, const float* x, const float* y, float* A)
 {
-    // TODO: write your CUDA kernel here
+    // i runs along the rows (contiguous in column-major) -> coalesced access
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= m) return;
+
+    const float axi = alpha * x[i];
+
+    // grid-stride loop over columns: correct even if gridDim.y is clamped
+    for (int j = blockIdx.y * blockDim.y + threadIdx.y; j < n;
+         j += gridDim.y * blockDim.y) {
+        A[(size_t)j * m + i] += axi * y[j];
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -105,11 +115,12 @@ int main(int argc, char** argv)
                 m, n, alpha, repeats);
     std::printf("Matrix storage: column-major\n\n");
 
-    // n1000: configure your kernel here
-    // TODO: the configuration below is a default that you must change
-    dim3 block(16, 16, 1);
-    dim3 grid( 1, 1, 1);
-    // end of TODO: kernel configuration
+    // kernel configuration: 32 threads along m (one full warp -> coalesced)
+    dim3 block(32, 8, 1);
+    dim3 grid((m + block.x - 1) / block.x,
+              std::min((n + (int)block.y - 1) / (int)block.y, 65535),
+              1);
+    // end of kernel configuration
 
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
@@ -141,6 +152,12 @@ int main(int argc, char** argv)
     // Correctness run: restore initial A and update once.
     cudaMemcpy(d_A, h_A0.data(), matrix_bytes, cudaMemcpyHostToDevice);
     ger_kernel<<<grid, block>>>(m, n, alpha, d_x, d_y, d_A);
+    {
+        cudaError_t err = cudaGetLastError();
+        if (err == cudaSuccess) err = cudaDeviceSynchronize();
+        if (err != cudaSuccess)
+            std::fprintf(stderr, "CUDA error in ger_kernel: %s\n", cudaGetErrorString(err));
+    }
     cudaMemcpy(h_custom.data(), d_A, matrix_bytes, cudaMemcpyDeviceToHost);
 
     // --------------------------------------------------------
